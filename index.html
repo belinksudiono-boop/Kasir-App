@@ -2,171 +2,164 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
-    <title>Sistem Kasir Toko Pro - Management Edition</title>
+    <title>Sistem Kasir Pro - Stok & Search Edition</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --danger: #e74c3c; }
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --danger: #e74c3c; --warning: #f1c40f; }
         body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f6; }
         .sidebar { width: 350px; background: var(--primary); color: white; padding: 20px; overflow-y: auto; }
         .main { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; }
-        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        input, button { padding: 10px; width: 100%; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 10px; box-sizing: border-box; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; color: #333; }
+        input, button { padding: 10px; width: 100%; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 8px; box-sizing: border-box; }
         button { cursor: pointer; font-weight: bold; border: none; color: white; transition: 0.3s; }
-        .btn-blue { background: var(--accent); }
-        .btn-green { background: var(--success); }
-        .btn-red { background: var(--danger); }
-        .btn-sm { width: auto; padding: 5px 10px; font-size: 12px; margin: 2px; }
+        .btn-green { background: var(--success); } .btn-blue { background: var(--accent); } .btn-red { background: var(--danger); }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
-        th { background: #f8f9fa; color: #333; }
-        #interactive.viewport { width: 100%; height: 150px; background: #000; border-radius: 8px; position: relative; overflow: hidden; margin-bottom: 10px; }
-        #interactive.viewport video, canvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        th { background: #f8f9fa; }
+        .stok-low { color: var(--danger); font-weight: bold; }
         .total-display { font-size: 2.5em; text-align: right; color: var(--danger); font-weight: bold; }
-        .list-container { max-height: 250px; overflow-y: auto; background: rgba(255,255,255,0.1); border-radius: 5px; padding: 5px; margin-top: 10px; }
-        .item-list { font-size: 12px; display: flex; justify-content: space-between; padding: 5px; border-bottom: 1px solid #444; }
-        @media print { .sidebar, .no-print, button { display: none; } .main { padding: 0; } .card { box-shadow: none; border: none; } }
+        #interactive.viewport { width: 100%; height: 150px; background: #000; border-radius: 8px; overflow: hidden; margin-bottom: 10px; }
+        .search-results { background: white; border: 1px solid #ddd; position: absolute; width: 300px; z-index: 100; display: none; max-height: 200px; overflow-y: auto; }
+        .search-item { padding: 10px; cursor: pointer; border-bottom: 1px solid #eee; }
+        .search-item:hover { background: #f0f0f0; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
-    <h3>📦 Manajemen Produk</h3>
-    <input type="text" id="db-bc" placeholder="Barcode">
+    <h3>📦 Stok & Produk</h3>
+    <input type="text" id="db-bc" placeholder="Barcode (Opsional)">
     <input type="text" id="db-nm" placeholder="Nama Barang">
     <input type="number" id="db-hg" placeholder="Harga Jual">
-    <button class="btn-green" onclick="simpanProduk()">Simpan / Update</button>
+    <input type="number" id="db-st" placeholder="Jumlah Stok Awal">
+    <button class="btn-green" onclick="simpanProduk()">Simpan Produk</button>
     
-    <div class="list-container" id="daftar-barang-view">
+    <div id="daftar-barang-view" style="font-size: 12px; margin-top: 15px;">
         </div>
-
-    <h3>👥 Member & Laporan</h3>
-    <input type="text" id="m-id" placeholder="No HP Member">
-    <input type="text" id="m-nm" placeholder="Nama Member">
-    <button class="btn-blue" onclick="daftarMember()">Simpan Member</button>
-    <button class="btn-blue" style="background:#8e44ad; margin-top:10px;" onclick="downloadExcel()">Unduh Laporan Excel</button>
+    <hr>
+    <button class="btn-blue" onclick="downloadExcel()">Laporan Penjualan (Excel)</button>
 </div>
 
 <div class="main">
     <div class="card">
         <div style="display: flex; justify-content: space-between; align-items: center;">
             <h2>🛒 Kasir Penjualan</h2>
-            <div style="text-align: right;">
-                <input type="text" id="scan-input" placeholder="Scan Barcode / ID Member" onchange="prosesInput(this.value)">
-                <div id="info-pembeli" style="font-weight:bold;">Pelanggan: Umum</div>
+            <div style="position: relative; width: 300px;">
+                <input type="text" id="scan-input" placeholder="Cari Nama / Scan Barcode..." oninput="cariBarang(this.value)">
+                <div id="search-results" class="search-results"></div>
             </div>
         </div>
+        
         <div id="interactive" class="viewport"></div>
-        <button class="btn-blue no-print" onclick="startScanner()">Nyalakan Kamera</button>
+        <button class="btn-blue" onclick="startScanner()">Nyalakan Kamera</button>
 
         <table>
             <thead>
-                <tr><th>Barang</th><th>Harga</th><th>Qty</th><th>Total</th><th>Aksi</th></tr>
+                <tr><th>Barang</th><th>Harga</th><th>Qty</th><th>Subtotal</th><th>Aksi</th></tr>
             </thead>
             <tbody id="cart-table"></tbody>
         </table>
-        <div id="potongan-text" style="text-align:right; color:var(--success); font-weight:bold; display:none;">Diskon Member: -Rp 5.000</div>
         <div class="total-display" id="total-tagihan">Rp 0</div>
     </div>
 
-    <div class="card no-print">
+    <div class="card">
         <div style="display: flex; gap: 15px; align-items: center;">
             <input type="number" id="bayar-input" placeholder="Uang Bayar" style="font-size: 1.5em;" oninput="hitungKembalian()">
             <div id="val-kembali" style="font-size: 1.5em; font-weight: bold; flex: 1;">Kembali: Rp 0</div>
-            <button class="btn-green" style="width: 200px; height: 50px;" onclick="bayarFinal()">BAYAR & PRINT</button>
+            <button class="btn-green" style="height: 50px; width: 200px;" onclick="bayarFinal()">SELESAI</button>
         </div>
     </div>
 </div>
 
 <script>
     let dbProduk = JSON.parse(localStorage.getItem('dbProduk')) || {};
-    let dbMember = JSON.parse(localStorage.getItem('dbMember')) || {};
     let dbLaporan = JSON.parse(localStorage.getItem('dbLaporan')) || [];
     let cart = [];
-    let activeMember = null;
-    let pointDiscount = 0;
 
-    // --- MANAJEMEN PRODUK ---
+    // --- MANAJEMEN STOK & PRODUK ---
     function simpanProduk() {
-        const bc = document.getElementById('db-bc').value;
+        const bc = document.getElementById('db-bc').value || 'M-ID-' + Date.now();
         const nm = document.getElementById('db-nm').value;
         const hg = parseInt(document.getElementById('db-hg').value);
-        if(!bc || !nm || isNaN(hg)) return alert("Isi Lengkap!");
-        dbProduk[bc] = { nama: nm, harga: hg };
+        const st = parseInt(document.getElementById('db-st').value) || 0;
+
+        if(!nm || isNaN(hg)) return alert("Nama dan Harga wajib diisi!");
+        
+        dbProduk[bc] = { nama: nm, harga: hg, stok: st };
         localStorage.setItem('dbProduk', JSON.stringify(dbProduk));
         renderDaftarBarang();
-        clearInputBarang();
-    }
-
-    function hapusBarang(bc) {
-        if(confirm("Hapus produk ini?")) {
-            delete dbProduk[bc];
-            localStorage.setItem('dbProduk', JSON.stringify(dbProduk));
-            renderDaftarBarang();
-        }
-    }
-
-    function editBarang(bc) {
-        const p = dbProduk[bc];
-        document.getElementById('db-bc').value = bc;
-        document.getElementById('db-nm').value = p.nama;
-        document.getElementById('db-hg').value = p.harga;
+        alert("Produk Berhasil Disimpan!");
+        ['db-bc', 'db-nm', 'db-hg', 'db-st'].forEach(id => document.getElementById(id).value = '');
     }
 
     function renderDaftarBarang() {
-        const container = document.getElementById('daftar-barang-view');
-        container.innerHTML = "<strong>Daftar Barang:</strong>";
+        const view = document.getElementById('daftar-barang-view');
+        view.innerHTML = "<strong>Status Stok:</strong><br>";
         for (let bc in dbProduk) {
-            container.innerHTML += `
-                <div class="item-list">
-                    <span>${dbProduk[bc].nama} (Rp${dbProduk[bc].harga.toLocaleString()})</span>
-                    <div>
-                        <span style="cursor:pointer; color:#3498db" onclick="editBarang('${bc}')">✎</span>
-                        <span style="cursor:pointer; color:#e74c3c; margin-left:10px;" onclick="hapusBarang('${bc}')">✖</span>
-                    </div>
-                </div>`;
+            let p = dbProduk[bc];
+            let klsStok = p.stok < 5 ? 'stok-low' : '';
+            view.innerHTML += `<div style="border-bottom:1px solid #555; padding:5px 0;">
+                <span class="${klsStok}">${p.nama}</span><br>
+                <small>Stok: ${p.stok} | Rp${p.harga.toLocaleString()}</small>
+            </div>`;
         }
     }
 
-    function clearInputBarang() {
-        document.getElementById('db-bc').value = "";
-        document.getElementById('db-nm').value = "";
-        document.getElementById('db-hg').value = "";
-    }
+    // --- FITUR PENCARIAN NAMA ---
+    function cariBarang(query) {
+        const resultsBox = document.getElementById('search-results');
+        if (query.length < 2) { resultsBox.style.display = 'none'; return; }
+        
+        resultsBox.innerHTML = '';
+        let found = false;
+        
+        // Cek Barcode Langsung
+        if(dbProduk[query]) { tambahKeCart(query); document.getElementById('scan-input').value = ''; return; }
 
-    // --- KASIR LOGIC ---
-    function prosesInput(val) {
-        if(dbMember[val]) {
-            activeMember = val;
-            document.getElementById('info-pembeli').innerText = "Member: " + dbMember[val].nama;
-            if(dbMember[val].poin >= 10 && confirm("Poin cukup! Tukar 10 poin dengan diskon Rp5.000?")) {
-                pointDiscount = 5000;
-                document.getElementById('potongan-text').style.display = "block";
+        // Cari Berdasarkan Nama
+        for (let bc in dbProduk) {
+            if (dbProduk[bc].nama.toLowerCase().includes(query.toLowerCase())) {
+                found = true;
+                resultsBox.style.display = 'block';
+                let div = document.createElement('div');
+                div.className = 'search-item';
+                div.innerHTML = `<strong>${dbProduk[bc].nama}</strong> <br> <small>Rp${dbProduk[bc].harga.toLocaleString()} (Stok: ${dbProduk[bc].stok})</small>`;
+                div.onclick = () => { tambahKeCart(bc); resultsBox.style.display = 'none'; document.getElementById('scan-input').value = ''; };
+                resultsBox.appendChild(div);
             }
-        } else if(dbProduk[val]) {
-            const p = dbProduk[val];
-            const item = cart.find(i => i.barcode === val);
-            if(item) { item.qty++; item.total = item.qty * item.harga; }
-            else { cart.push({ barcode: val, nama: p.nama, harga: p.harga, qty: 1, total: p.harga }); }
         }
-        document.getElementById('scan-input').value = "";
+        if(!found) resultsBox.style.display = 'none';
+    }
+
+    // --- LOGIKA KASIR ---
+    function tambahKeCart(bc) {
+        const p = dbProduk[bc];
+        if (p.stok <= 0) return alert("Stok Habis!");
+        
+        const item = cart.find(i => i.barcode === bc);
+        if (item) {
+            if (item.qty + 1 > p.stok) return alert("Stok tidak mencukupi!");
+            item.qty++;
+            item.total = item.qty * item.harga;
+        } else {
+            cart.push({ barcode: bc, nama: p.nama, harga: p.harga, qty: 1, total: p.harga });
+        }
         renderCart();
     }
 
     function renderCart() {
         const tbody = document.getElementById('cart-table');
-        tbody.innerHTML = "";
-        let total = cart.reduce((s, i) => s + i.total, 0);
+        tbody.innerHTML = '';
+        let total = 0;
         cart.forEach((i, idx) => {
-            tbody.innerHTML += `<tr><td>${i.nama}</td><td>${i.harga.toLocaleString()}</td><td>${i.qty}</td><td>${i.total.toLocaleString()}</td><td><button class="btn-red btn-sm" onclick="hapusCart(${idx})">X</button></td></tr>`;
+            total += i.total;
+            tbody.innerHTML += `<tr><td>${i.nama}</td><td>${i.harga.toLocaleString()}</td><td>${i.qty}</td><td>${i.total.toLocaleString()}</td><td><button class="btn-red" style="padding:2px 5px;" onclick="hapusCart(${idx})">X</button></td></tr>`;
         });
-        document.getElementById('total-tagihan').innerText = "Rp " + Math.max(0, total - pointDiscount).toLocaleString('id-ID');
+        document.getElementById('total-tagihan').innerText = "Rp " + total.toLocaleString('id-ID');
     }
 
-    function hapusCart(idx) {
-        cart.splice(idx, 1);
-        renderCart();
-    }
+    function hapusCart(idx) { cart.splice(idx, 1); renderCart(); }
 
     function hitungKembalian() {
         const total = parseInt(document.getElementById('total-tagihan').innerText.replace(/\D/g,''));
@@ -176,36 +169,31 @@
 
     function bayarFinal() {
         if(cart.length === 0) return;
-        const totalFinal = parseInt(document.getElementById('total-tagihan').innerText.replace(/\D/g,''));
-        dbLaporan.push({ id: Date.now(), waktu: new Date().toLocaleString(), total: totalFinal, member: activeMember || "Umum" });
+        
+        // Potong Stok
+        cart.forEach(item => {
+            dbProduk[item.barcode].stok -= item.qty;
+        });
+        
+        // Simpan Laporan & Database
+        dbLaporan.push({ waktu: new Date().toLocaleString(), total: document.getElementById('total-tagihan').innerText, detail: [...cart] });
+        localStorage.setItem('dbProduk', JSON.stringify(dbProduk));
         localStorage.setItem('dbLaporan', JSON.stringify(dbLaporan));
-        if(activeMember) {
-            if(pointDiscount > 0) dbMember[activeMember].poin -= 10;
-            dbMember[activeMember].poin += Math.floor(totalFinal / 10000);
-            localStorage.setItem('dbMember', JSON.stringify(dbMember));
-        }
-        alert("Sukses!"); window.print(); location.reload();
-    }
-
-    function daftarMember() {
-        const id = document.getElementById('m-id').value;
-        const nm = document.getElementById('m-nm').value;
-        if(!id || !nm) return;
-        dbMember[id] = { nama: nm, poin: 0 };
-        localStorage.setItem('dbMember', JSON.stringify(dbMember));
-        alert("Member Terdaftar!");
+        
+        alert("Transaksi Berhasil!");
+        location.reload();
     }
 
     function startScanner() {
         Quagga.init({ inputStream: { name: "Live", type: "LiveStream", target: document.querySelector('#interactive') }, decoder: { readers: ["ean_reader", "code_128_reader"] } }, function() { Quagga.start(); });
-        Quagga.onDetected(function(res) { prosesInput(res.codeResult.code); Quagga.stop(); setTimeout(startScanner, 1500); });
+        Quagga.onDetected(function(res) { tambahKeCart(res.codeResult.code); Quagga.stop(); setTimeout(startScanner, 1500); });
     }
 
     function downloadExcel() {
         const ws = XLSX.utils.json_to_sheet(dbLaporan);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Laporan");
-        XLSX.writeFile(wb, "Laporan_Kasir.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "Sales");
+        XLSX.writeFile(wb, "Laporan_Penjualan.xlsx");
     }
 
     renderDaftarBarang();
