@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Kasir Pro - Cetak Label Barcode</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --success: #27ae60; --danger: #e74c3c; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; background: #f4f7f6; }
+        .sidebar { width: 380px; background: var(--primary); color: white; padding: 20px; overflow-y: auto; }
+        .main { flex: 1; padding: 20px; overflow-y: auto; }
+        .card { background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        input, button { padding: 10px; width: 100%; border-radius: 5px; border: 1px solid #ddd; margin-bottom: 8px; box-sizing: border-box; }
+        button { cursor: pointer; font-weight: bold; border: none; color: white; transition: 0.3s; }
+        .btn-green { background: var(--success); } .btn-blue { background: var(--accent); }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th, td { padding: 10px; border-bottom: 1px solid #eee; text-align: left; }
+        .barcode-preview { text-align: center; background: #eee; padding: 10px; border-radius: 5px; margin-top: 10px; color: #333; }
+        #barcode-img { max-width: 100%; }
+        .total-display { font-size: 2.5em; text-align: right; color: var(--danger); font-weight: bold; }
+        
+        /* Gaya untuk Print Label */
+        @media print {
+            body * { visibility: hidden; }
+            #section-to-print, #section-to-print * { visibility: visible; }
+            #section-to-print { position: absolute; left: 0; top: 0; width: 100%; text-align: center; }
+            .no-print { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar no-print">
+    <h3>📦 Input & Cetak Barcode</h3>
+    <input type="text" id="p-bc" placeholder="Barcode (Kosongkan jika ingin dibuatkan)">
+    <input type="text" id="p-nm" placeholder="Nama Produk">
+    <input type="number" id="p-hg" placeholder="Harga Jual">
+    <input type="number" id="p-st" placeholder="Jumlah Stok">
+    <button class="btn-green" onclick="tambahDanCetak()">Simpan & Buat Barcode</button>
+
+    <div class="barcode-preview" id="section-to-print">
+        <p id="print-nama" style="margin:0; font-weight:bold;"></p>
+        <svg id="barcode-img"></svg>
+        <p id="print-harga" style="margin:0;"></p>
+        <button class="btn-blue no-print" onclick="window.print()" style="margin-top:10px;">🖨️ Cetak Label Ini</button>
+    </div>
+    
+    <hr>
+    <h4>Daftar Barang</h4>
+    <div id="stok-view" style="font-size: 11px;"></div>
+</div>
+
+<div class="main">
+    <div class="card no-print">
+        <h2>🛒 Kasir Penjualan</h2>
+        <input type="text" id="scan-input" placeholder="Scan Barcode / Cari Nama..." onchange="cariBarang(this.value)">
+        <table>
+            <thead><tr><th>Barang</th><th>Harga</th><th>Qty</th><th>Subtotal</th></tr></thead>
+            <tbody id="cart-table"></tbody>
+        </table>
+        <div class="total-display" id="total-tagihan">Rp 0</div>
+        <button class="btn-green" onclick="prosesBayar()">SELESAI & POTONG STOK</button>
+    </div>
+</div>
+
+<script>
+    let dbProduk = JSON.parse(localStorage.getItem('dbProduk')) || {};
+    let cart = [];
+
+    // --- FUNGSI UTAMA: MEMBUAT GARIS BARCODE ---
+    function tambahDanCetak() {
+        let bc = document.getElementById('p-bc').value || "T" + Date.now();
+        const nm = document.getElementById('p-nm').value;
+        const hg = document.getElementById('p-hg').value;
+        const st = parseInt(document.getElementById('p-st').value) || 0;
+
+        if(!nm || !hg) return alert("Nama dan Harga wajib diisi!");
+
+        // Simpan ke database
+        dbProduk[bc] = { nama: nm, harga: parseInt(hg), stok: st };
+        localStorage.setItem('dbProduk', JSON.stringify(dbProduk));
+
+        // Generate Garis Barcode secara Visual
+        document.getElementById('print-nama').innerText = nm;
+        document.getElementById('print-harga').innerText = "Rp " + parseInt(hg).toLocaleString();
+        
+        JsBarcode("#barcode-img", bc, {
+            format: "CODE128",
+            lineColor: "#000",
+            width: 2,
+            height: 50,
+            displayValue: true
+        });
+
+        alert("Produk Berhasil Disimpan!");
+        renderStok();
+    }
+
+    function cariBarang(val) {
+        if(dbProduk[val]) {
+            tambahKeCart(val);
+        } else {
+            // Cari nama jika tidak ketemu barcode
+            for (let bc in dbProduk) {
+                if(dbProduk[bc].nama.toLowerCase().includes(val.toLowerCase())) {
+                    tambahKeCart(bc);
+                    break;
+                }
+            }
+        }
+        document.getElementById('scan-input').value = "";
+    }
+
+    function tambahKeCart(bc) {
+        const p = dbProduk[bc];
+        if(p.stok <= 0) return alert("Stok Habis!");
+        cart.push({ barcode: bc, nama: p.nama, harga: p.harga });
+        renderCart();
+    }
+
+    function renderCart() {
+        const tbody = document.getElementById('cart-table');
+        tbody.innerHTML = "";
+        let total = 0;
+        cart.forEach(i => {
+            total += i.harga;
+            tbody.innerHTML += `<tr><td>${i.nama}</td><td>${i.harga.toLocaleString()}</td><td>1</td><td>${i.harga.toLocaleString()}</td></tr>`;
+        });
+        document.getElementById('total-tagihan').innerText = "Rp " + total.toLocaleString();
+    }
+
+    function prosesBayar() {
+        if(cart.length === 0) return;
+        cart.forEach(item => { dbProduk[item.barcode].stok -= 1; });
+        localStorage.setItem('dbProduk', JSON.stringify(dbProduk));
+        alert("Transaksi Berhasil!");
+        location.reload();
+    }
+
+    function renderStok() {
+        const view = document.getElementById('stok-view');
+        view.innerHTML = "";
+        for(let bc in dbProduk) {
+            view.innerHTML += `<div style="border-bottom:1px solid #555; padding:5px;">${dbProduk[bc].nama} | Stok: ${dbProduk[bc].stok} <button onclick="cetakLagi('${bc}')" style="width:auto; padding:2px; font-size:9px; background:gray">Label</button></div>`;
+        }
+    }
+
+    function cetakLagi(bc) {
+        const p = dbProduk[bc];
+        document.getElementById('p-bc').value = bc;
+        document.getElementById('p-nm').value = p.nama;
+        document.getElementById('p-hg').value = p.harga;
+        tambahDanCetak(); // Generate ulang preview untuk diprint
+    }
+
+    renderStok();
+</script>
+</body>
+</html>
